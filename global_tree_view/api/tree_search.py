@@ -15,6 +15,48 @@ def search_link(
 	link_fieldname: str | None = None,
 	start: int = 0,
 ):
+	# Load settings
+	settings = None
+	try:
+		settings = frappe.get_cached_doc("Tree Search Setting")
+	except Exception:
+		pass
+
+	# Fallback if settings are inactive
+	if settings and not settings.active:
+		return original_search_link(
+			doctype,
+			txt,
+			query,
+			filters,
+			page_length,
+			searchfield,
+			reference_doctype,
+			ignore_user_permissions,
+			link_fieldname=link_fieldname,
+		)
+
+	# Fallback if doctype is ignored in settings
+	if settings and settings.ignore_doctypes:
+		ignored = [d.doctype_to_ignore for d in settings.ignore_doctypes if d.doctype_to_ignore]
+		if doctype in ignored:
+			return original_search_link(
+				doctype,
+				txt,
+				query,
+				filters,
+				page_length,
+				searchfield,
+				reference_doctype,
+				ignore_user_permissions,
+				link_fieldname=link_fieldname,
+			)
+
+	# Respect ignore_user_permissions setting
+	ignore_permissions = ignore_user_permissions
+	if settings and settings.ignore_user_permissions:
+		ignore_permissions = True
+
 	# 1. Check if it's a tree doctype
 	meta = frappe.get_meta(doctype)
 	if meta.is_tree:
@@ -58,7 +100,7 @@ def search_link(
 					doctype,
 					fields=["name", parent_field, "is_group"],
 					limit=10000,
-					ignore_permissions=ignore_user_permissions
+					ignore_permissions=ignore_permissions
 				)
 				parent_map = {node.name: node[parent_field] for node in all_nodes}
 
@@ -68,19 +110,46 @@ def search_link(
 					fields=["name"],
 					filters=target_filters,
 					limit=10000,
-					ignore_permissions=ignore_user_permissions
+					ignore_permissions=ignore_permissions
 				)
 
 				# Build path function
 				def get_path(name):
-					path = []
+					path_parts = []
 					curr = name
 					visited = set()
 					while curr and curr not in visited:
 						visited.add(curr)
-						path.insert(0, curr)
+						
+						# Clean name if remove_company_abbreviation is set
+						cleaned_name = curr
+						if settings and settings.remove_company_abbreviation and " - " in curr:
+							parts = curr.rsplit(" - ", 1)
+							if len(parts) > 1 and parts[1].isupper() and 2 <= len(parts[1]) <= 5:
+								cleaned_name = parts[0]
+								
+						path_parts.insert(0, cleaned_name)
 						curr = parent_map.get(curr)
-					return " -> ".join(path)
+					
+					# Handle show_child_node setting
+					if settings and not settings.show_child_node and len(path_parts) > 1:
+						path_parts = path_parts[:-1]
+
+					# Handle maximum_tree_levels setting
+					max_levels = settings.maximum_tree_levels if settings else 0
+					is_truncated = False
+					if max_levels > 0 and len(path_parts) > max_levels:
+						path_parts = path_parts[-max_levels:]
+						is_truncated = True
+
+					# Join using separator setting
+					sep = settings.separator if (settings and settings.separator) else " -> "
+					path_str = sep.join(path_parts)
+					
+					if is_truncated:
+						path_str = "..." + sep + path_str
+						
+					return path_str
 
 				# Filter and build results
 				result = []

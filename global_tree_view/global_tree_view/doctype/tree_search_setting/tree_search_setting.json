@@ -1,0 +1,80 @@
+{
+ "actions": [],
+ "creation": "2026-07-15 16:30:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "active",
+  "separator",
+  "maximum_tree_levels",
+  "show_child_node",
+  "remove_company_abbreviation",
+  "ignore_user_permissions",
+  "ignore_doctypes"
+ ],
+ "fields": [
+  {
+   "fieldname": "active",
+   "fieldtype": "Check",
+   "label": "Active",
+   "default": "1"
+  },
+  {
+   "fieldname": "separator",
+   "fieldtype": "Data",
+   "label": "Separator",
+   "default": " -> "
+  },
+  {
+   "fieldname": "maximum_tree_levels",
+   "fieldtype": "Int",
+   "label": "Maximum Tree Levels",
+   "default": "0"
+  },
+  {
+   "fieldname": "show_child_node",
+   "fieldtype": "Check",
+   "label": "Show Child Node",
+   "default": "1"
+  },
+  {
+   "fieldname": "remove_company_abbreviation",
+   "fieldtype": "Check",
+   "label": "Remove Company Abbreviation",
+   "default": "0"
+  },
+  {
+   "fieldname": "ignore_user_permissions",
+   "fieldtype": "Check",
+   "label": "Ignore User Permissions",
+   "default": "0"
+  },
+  {
+   "fieldname": "ignore_doctypes",
+   "fieldtype": "Table",
+   "label": "Ignore Doctypes",
+   "options": "Tree Search Ignore Doctype"
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-07-15 16:30:00.000000",
+ "modified_by": "Administrator",
+ "module": "Global Tree View",
+ "name": "Tree Search Setting",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "quick_entry": 1,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
