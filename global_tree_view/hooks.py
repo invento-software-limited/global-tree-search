@@ -47,6 +47,9 @@ app_license = "mit"
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
+override_whitelisted_methods = {
+	"frappe.desk.search.search_link": "global_tree_view.api.tree_search.search_link"
+}
 
 # Svg Icons
 # ------------------
