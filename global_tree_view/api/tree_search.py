@@ -32,8 +32,7 @@ def search_link(
 			page_length,
 			searchfield,
 			reference_doctype,
-			ignore_user_permissions,
-			link_fieldname=link_fieldname,
+			ignore_user_permissions
 		)
 
 	# Fallback if doctype is ignored in settings
@@ -48,8 +47,7 @@ def search_link(
 				page_length,
 				searchfield,
 				reference_doctype,
-				ignore_user_permissions,
-				link_fieldname=link_fieldname,
+				ignore_user_permissions
 			)
 
 	# Respect ignore_user_permissions setting
@@ -66,7 +64,7 @@ def search_link(
 			if field.fieldtype == "Link" and field.options == doctype:
 				parent_field = field.fieldname
 				break
-		
+
 		if not parent_field:
 			# Fallback
 			fallback = f"parent_{frappe.scrub(doctype)}"
@@ -139,17 +137,17 @@ def search_link(
 					visited = set()
 					while curr and curr not in visited:
 						visited.add(curr)
-						
+
 						# Clean name if remove_company_abbreviation is set
 						cleaned_name = curr
 						if settings and settings.remove_company_abbreviation and " - " in curr:
 							parts = curr.rsplit(" - ", 1)
 							if len(parts) > 1 and parts[1].isupper() and 2 <= len(parts[1]) <= 5:
 								cleaned_name = parts[0]
-								
+
 						path_parts.insert(0, cleaned_name)
 						curr = parent_map.get(curr)
-					
+
 					# Handle show_child_node setting
 					if settings and not settings.show_child_node and len(path_parts) > 1:
 						path_parts = path_parts[:-1]
@@ -164,10 +162,10 @@ def search_link(
 					# Join using separator setting
 					sep = settings.separator if (settings and settings.separator) else " -> "
 					path_str = sep.join(path_parts)
-					
+
 					if is_truncated:
 						path_str = "..." + sep + path_str
-						
+
 					return path_str
 
 				# Filter and build results
@@ -187,7 +185,7 @@ def search_link(
 			except Exception as e:
 				# Log exception and fallback
 				frappe.log_error(message=str(e), title="Tree Search Override Failed")
-				
+
 	# Fallback to the original search_link
 	return original_search_link(
 		doctype,
@@ -198,5 +196,4 @@ def search_link(
 		searchfield,
 		reference_doctype,
 		ignore_user_permissions,
-		link_fieldname=link_fieldname,
 	)
