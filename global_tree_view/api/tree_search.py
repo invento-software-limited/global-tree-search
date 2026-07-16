@@ -88,11 +88,30 @@ def search_link(
 				elif isinstance(filters, list):
 					# Handle list filters
 					for f in filters:
-						if isinstance(f, (list, tuple)) and len(f) >= 3:
-							if f[1] == "is_group":
-								target_filters["is_group"] = f[3]
-							else:
-								target_filters[f[1]] = f[3]
+						if isinstance(f, (list, tuple)):
+							fieldname = None
+							value = None
+							if len(f) == 2:
+								fieldname = f[0]
+								value = f[1]
+							elif len(f) == 3:
+								fieldname = f[0]
+								value = f[2]
+							elif len(f) >= 4:
+								fieldname = f[1]
+								value = f[3]
+
+							if fieldname and isinstance(fieldname, str):
+								if fieldname == "is_group":
+									target_filters["is_group"] = value
+								else:
+									target_filters[fieldname] = value
+						elif isinstance(f, dict):
+							for k, v in f.items():
+								if k == "is_group":
+									target_filters["is_group"] = v
+								else:
+									target_filters[k] = v
 
 			try:
 				# Fetch all nodes to build hierarchy map in memory
