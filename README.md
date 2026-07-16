@@ -1,6 +1,11 @@
 ### Global Tree View
 
-na
+
+**Global Tree View** intercepts and enhances standard search suggestions for tree DocTypes in Frappe and ERPNext. It displays complete hierarchical paths (e.g., `Current Assets -> Bank Accounts -> Cash`) instead of just plain leaf node names, reducing selection errors in deep structures.
+
+### 📖 Documentation
+
+Check out the complete [Product Overview & User Guide](https://invento-software-limited.github.io/global-tree-search/) for detailed installation, configuration, and troubleshooting instructions.
 
 ### Installation
 
@@ -8,9 +13,10 @@ You can install this app using the [bench](https://github.com/frappe/bench) CLI:
 
 ```bash
 cd $PATH_TO_YOUR_BENCH
-bench get-app $URL_OF_THIS_REPO --branch main
+bench get-app https://github.com/invento-software-limited/global-tree-search --branch main
 bench install-app global_tree_view
 ```
+
 
 ### Contributing
 
