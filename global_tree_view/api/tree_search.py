@@ -15,6 +15,36 @@ def search_link(
 	link_fieldname: str | None = None,
 	start: int = 0,
 ):
+	try:
+		return _search_link_impl(
+			doctype,
+			txt,
+			query,
+			filters,
+			page_length,
+			searchfield,
+			reference_doctype,
+			ignore_user_permissions,
+			link_fieldname=link_fieldname,
+			start=start,
+		)
+	finally:
+		if hasattr(frappe.local, "response_headers") and frappe.local.response_headers is not None:
+			frappe.local.response_headers.set("Cache-Control", "no-cache, no-store, must-revalidate")
+
+def _search_link_impl(
+	doctype: str,
+	txt: str,
+	query: str | None = None,
+	filters: str | dict | list | None = None,
+	page_length: int = 20,
+	searchfield: str | None = None,
+	reference_doctype: str | None = None,
+	ignore_user_permissions: bool = False,
+	*,
+	link_fieldname: str | None = None,
+	start: int = 0,
+):
 	# Load settings
 	settings = None
 	try:
@@ -74,63 +104,31 @@ def search_link(
 				parent_field = fallback
 
 		if parent_field:
-			# Parse filters if necessary
-			target_filters = {"is_group": 0}
-			if filters:
-				if isinstance(filters, str):
-					import json
-					try:
-						filters = json.loads(filters)
-					except Exception:
-						pass
-				if isinstance(filters, dict):
-					target_filters.update(filters)
-				elif isinstance(filters, list):
-					# Handle list filters
-					for f in filters:
-						if isinstance(f, (list, tuple)):
-							fieldname = None
-							value = None
-							if len(f) == 2:
-								fieldname = f[0]
-								value = f[1]
-							elif len(f) == 3:
-								fieldname = f[0]
-								value = f[2]
-							elif len(f) >= 4:
-								fieldname = f[1]
-								value = f[3]
-
-							if fieldname and isinstance(fieldname, str):
-								if fieldname == "is_group":
-									target_filters["is_group"] = value
-								else:
-									target_filters[fieldname] = value
-						elif isinstance(f, dict):
-							for k, v in f.items():
-								if k == "is_group":
-									target_filters["is_group"] = v
-								else:
-									target_filters[k] = v
-
 			try:
+				# Search fields for the doctype
+				search_fields = ["name"]
+				if meta.title_field:
+					search_fields.append(meta.title_field)
+				if meta.search_fields:
+					for f in meta.search_fields:
+						if f not in search_fields:
+							search_fields.append(f)
+
 				# Fetch all nodes to build hierarchy map in memory
+				fields_to_fetch = ["name", parent_field]
+				if meta.has_field("is_group"):
+					fields_to_fetch.append("is_group")
+				for f in search_fields:
+					if meta.has_field(f) and f not in fields_to_fetch:
+						fields_to_fetch.append(f)
+
 				all_nodes = frappe.get_all(
 					doctype,
-					fields=["name", parent_field, "is_group"],
-					limit=10000,
+					fields=fields_to_fetch,
+					limit=None,
 					ignore_permissions=ignore_permissions
 				)
 				parent_map = {node.name: node[parent_field] for node in all_nodes}
-
-				# Fetch target matching leaf nodes
-				target_nodes = frappe.get_all(
-					doctype,
-					fields=["name"],
-					filters=target_filters,
-					limit=10000,
-					ignore_permissions=ignore_permissions
-				)
 
 				# Build path function
 				def get_path(name):
@@ -170,12 +168,110 @@ def search_link(
 						
 					return path_str
 
+				# If there is a custom query or standard query, run it and post-process
+				standard_queries = frappe.get_hooks().standard_queries or {}
+				has_custom_query = bool(query or (doctype in standard_queries))
+
+				if has_custom_query:
+					original_res = original_search_link(
+						doctype,
+						txt,
+						query,
+						filters,
+						page_length,
+						searchfield,
+						reference_doctype,
+						ignore_user_permissions,
+						link_fieldname=link_fieldname,
+					)
+					for item in original_res:
+						val = item.get("value")
+						if val:
+							path = get_path(val)
+							node_data = next((n for n in all_nodes if n.name == val), None)
+							is_group = node_data.get("is_group") if (node_data and "is_group" in node_data) else 0
+							if is_group:
+								item["description"] = f"{path} (Group)"
+							else:
+								item["description"] = path
+					return original_res
+
+				# Parse filters and preserve operators
+				include_disabled = False
+				parsed_filters = []
+				if filters:
+					if isinstance(filters, str):
+						import json
+						try:
+							filters = json.loads(filters)
+						except Exception:
+							pass
+					
+					if isinstance(filters, dict):
+						if "include_disabled" in filters:
+							if filters["include_disabled"] == 1:
+								include_disabled = True
+							filters = dict(filters)
+							filters.pop("include_disabled", None)
+						for k, v in filters.items():
+							parsed_filters.append([doctype, k, "=", v])
+					elif isinstance(filters, list):
+						for f in filters:
+							if isinstance(f, (list, tuple)):
+								parsed_filters.append(list(f))
+							elif isinstance(f, dict):
+								for k, v in f.items():
+									parsed_filters.append([doctype, k, "=", v])
+
+				# Build target filters
+				target_filters = []
+				
+				# Append user filters
+				target_filters.extend(parsed_filters)
+
+				# Handle enabled/disabled
+				if not include_disabled:
+					if meta.get("fields", {"fieldname": "enabled", "fieldtype": "Check"}):
+						target_filters.append([doctype, "enabled", "=", 1])
+					if meta.get("fields", {"fieldname": "disabled", "fieldtype": "Check"}):
+						target_filters.append([doctype, "disabled", "!=", 1])
+
+				# Fetch target matching nodes
+				target_fields = ["name"]
+				if meta.has_field("is_group"):
+					target_fields.append("is_group")
+
+				target_nodes = frappe.get_all(
+					doctype,
+					fields=target_fields,
+					filters=target_filters,
+					limit=None,
+					ignore_permissions=ignore_permissions
+				)
+
 				# Filter and build results
 				result = []
 				for node in target_nodes:
 					path = get_path(node.name)
-					if not txt or txt.lower() in path.lower():
-						result.append((node.name, path))
+					matches = False
+					if not txt:
+						matches = True
+					elif txt.lower() in path.lower():
+						matches = True
+					else:
+						# Find this node in all_nodes to check search fields
+						node_data = next((n for n in all_nodes if n.name == node.name), None)
+						if node_data:
+							for sf in search_fields:
+								val = node_data.get(sf)
+								if val and txt.lower() in str(val).lower():
+									matches = True
+									break
+					
+					if matches:
+						is_group = node.get("is_group") if "is_group" in node else 0
+						desc = f"{path} (Group)" if is_group else path
+						result.append((node.name, desc))
 
 				# Sort results by name
 				result.sort(key=lambda x: x[0])
