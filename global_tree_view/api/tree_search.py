@@ -187,7 +187,13 @@ def _search_link_impl(
 					for item in original_res:
 						val = item.get("value")
 						if val:
-							item["description"] = get_path(val)
+							path = get_path(val)
+							node_data = next((n for n in all_nodes if n.name == val), None)
+							is_group = node_data.get("is_group") if (node_data and "is_group" in node_data) else 0
+							if is_group:
+								item["description"] = f"{path} (Group)"
+							else:
+								item["description"] = path
 					return original_res
 
 				# Parse filters and preserve operators
@@ -220,22 +226,6 @@ def _search_link_impl(
 				# Build target filters
 				target_filters = []
 				
-				# Check is_group in filters
-				is_group_in_filters = False
-				for f in parsed_filters:
-					if len(f) == 4 and f[1] == "is_group":
-						is_group_in_filters = True
-						break
-					elif len(f) == 3 and f[0] == "is_group":
-						is_group_in_filters = True
-						break
-					elif len(f) == 2 and f[0] == "is_group":
-						is_group_in_filters = True
-						break
-
-				if not is_group_in_filters and meta.has_field("is_group"):
-					target_filters.append([doctype, "is_group", "=", 0])
-
 				# Append user filters
 				target_filters.extend(parsed_filters)
 
@@ -246,10 +236,14 @@ def _search_link_impl(
 					if meta.get("fields", {"fieldname": "disabled", "fieldtype": "Check"}):
 						target_filters.append([doctype, "disabled", "!=", 1])
 
-				# Fetch target matching nodes (leaves)
+				# Fetch target matching nodes
+				target_fields = ["name"]
+				if meta.has_field("is_group"):
+					target_fields.append("is_group")
+
 				target_nodes = frappe.get_all(
 					doctype,
-					fields=["name"],
+					fields=target_fields,
 					filters=target_filters,
 					limit=None,
 					ignore_permissions=ignore_permissions
@@ -275,7 +269,9 @@ def _search_link_impl(
 									break
 					
 					if matches:
-						result.append((node.name, path))
+						is_group = node.get("is_group") if "is_group" in node else 0
+						desc = f"{path} (Group)" if is_group else path
+						result.append((node.name, desc))
 
 				# Sort results by name
 				result.sort(key=lambda x: x[0])

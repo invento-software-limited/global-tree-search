@@ -54,15 +54,16 @@ def search_link(
 
 5. **Parent Field Discovery** — Scans fields for a `Link` field that points to the same Doctype (the parent field). If none is found, it tries a convention-based fallback: `parent_{scrubbed_doctype_name}`.
 
-6. **Filter Building** — Merges the user-provided filters with a default `is_group = 0` to target only leaf nodes.
+6. **Filter Building** — Merges the user-provided filters. Group nodes are not filtered out by default, allowing them to be shown when not explicitly excluded by the link field filters.
 
-7. **Data Loading** — Fetches all nodes (limited to 10,000) to build an in-memory parent map, plus the leaf nodes matching the filters.
+7. **Data Loading** — Fetches all nodes (limited to 10,000) to build an in-memory parent map, plus the target nodes matching the filters.
 
-8. **Path Construction** — For each matching leaf node, traverses the parent map upward to build the full path:
+8. **Path Construction** — For each matching target node, traverses the parent map upward to build the full path:
    - Optionally **removes the company abbreviation** (e.g., `My Account - AB` → `My Account`) if the setting is enabled.
    - Optionally **hides the child node itself** (only shows ancestors) if `show_child_node` is disabled.
    - **Truncates** the path to the last N levels if `maximum_tree_levels` is set (>0). A `"..."` prefix is added when truncated.
    - Uses the configured **separator** (default ` -> `) to join path parts.
+   - Appends a ` (Group)` suffix to the final path if the target node itself is a group.
 
 9. **Filtering & Pagination** — Keeps only results where the full path (case-insensitively) contains the search text (`txt`). Sorts by name, then paginates via `start` and `page_length`.
 
