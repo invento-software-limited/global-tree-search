@@ -2,6 +2,7 @@
 # See license.txt
 
 import frappe
+from frappe.permissions import add_permission, add_user_permission
 from frappe.tests import IntegrationTestCase
 from global_tree_view.api.tree_search import search_link
 
@@ -196,3 +197,97 @@ class IntegrationTestTreeSearchSetting(IntegrationTestCase):
 			self.assertEqual(emp_res["description"], expected_path)
 		finally:
 			mock_query_results = []
+
+	def test_search_link_denies_user_without_read_permission(self):
+		# Regression test: frappe.get_all() forces ignore_permissions=True
+		# internally, so passing ignore_permissions=False to it (as the old
+		# implementation did) had no effect and every caller could read every
+		# tree doctype regardless of role permissions. A role with no
+		# Custom DocPerm on Cost Center must be denied, not silently served
+		# the full unfiltered list.
+		role_name = "GTV Test No Cost Center Access"
+		if not frappe.db.exists("Role", role_name):
+			frappe.get_doc({"doctype": "Role", "role_name": role_name, "desk_access": 1}).insert(
+				ignore_permissions=True
+			)
+
+		user_email = "gtv-no-access-test@example.com"
+		if not frappe.db.exists("User", user_email):
+			user = frappe.get_doc(
+				{
+					"doctype": "User",
+					"email": user_email,
+					"first_name": "GTV No Access",
+					"send_welcome_email": 0,
+					"roles": [{"role": role_name}],
+				}
+			)
+			user.insert(ignore_permissions=True)
+		else:
+			user = frappe.get_doc("User", user_email)
+			user.set("roles", [{"role": role_name}])
+			user.save(ignore_permissions=True)
+
+		self.addCleanup(frappe.set_user, "Administrator")
+		frappe.set_user(user_email)
+
+		with self.assertRaises(frappe.PermissionError):
+			search_link(doctype="Cost Center", txt="")
+
+	def test_search_link_respects_user_permission_restriction(self):
+		# Regression test: the row-level User Permission match conditions
+		# were also silently skipped by the old frappe.get_all() call, so a
+		# user restricted to one Territory could still see every Territory
+		# in the system. Fixed by switching to frappe.get_list().
+		role_name = "GTV Test Territory Reader"
+		if not frappe.db.exists("Role", role_name):
+			frappe.get_doc({"doctype": "Role", "role_name": role_name, "desk_access": 1}).insert(
+				ignore_permissions=True
+			)
+			add_permission("Territory", role_name, 0, "read")
+
+		root = frappe.db.get_value("Territory", {"is_group": 1, "parent_territory": ["is", "not set"]}, "name")
+
+		def get_or_create_territory(name):
+			if frappe.db.exists("Territory", name):
+				return name
+			frappe.get_doc(
+				{
+					"doctype": "Territory",
+					"territory_name": name,
+					"parent_territory": root,
+					"is_group": 0,
+				}
+			).insert(ignore_permissions=True)
+			return name
+
+		allowed_territory = get_or_create_territory("GTV Test Territory Allowed")
+		restricted_territory = get_or_create_territory("GTV Test Territory Restricted")
+
+		user_email = "gtv-territory-restricted-test@example.com"
+		if not frappe.db.exists("User", user_email):
+			user = frappe.get_doc(
+				{
+					"doctype": "User",
+					"email": user_email,
+					"first_name": "GTV Territory Restricted",
+					"send_welcome_email": 0,
+					"roles": [{"role": role_name}],
+				}
+			)
+			user.insert(ignore_permissions=True)
+		else:
+			user = frappe.get_doc("User", user_email)
+			user.set("roles", [{"role": role_name}])
+			user.save(ignore_permissions=True)
+
+		add_user_permission("Territory", allowed_territory, user_email)
+
+		self.addCleanup(frappe.set_user, "Administrator")
+		frappe.set_user(user_email)
+
+		res = search_link(doctype="Territory", txt="GTV Test Territory")
+		values = {r["value"] for r in res}
+
+		self.assertIn(allowed_territory, values)
+		self.assertNotIn(restricted_territory, values)

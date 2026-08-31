@@ -1,5 +1,9 @@
 import frappe
-from frappe.desk.search import search_link as original_search_link, build_for_autosuggest
+from frappe.desk.search import (
+	build_for_autosuggest,
+	search_link as original_search_link,
+	validate_ignore_user_permissions,
+)
 
 @frappe.whitelist()
 def search_link(
@@ -82,7 +86,19 @@ def _search_link_impl(
 				link_fieldname=link_fieldname,
 			)
 
-	# Respect ignore_user_permissions setting
+	# Respect ignore_user_permissions setting, mirroring core's own validation
+	# (frappe.desk.search.search_widget) so a client can't unlock it unchecked.
+	if ignore_user_permissions:
+		if reference_doctype and link_fieldname:
+			validate_ignore_user_permissions(reference_doctype, link_fieldname, doctype)
+		else:
+			frappe.logger().error(
+				"setting ignore_user_permissions=True requires reference_doctype and "
+				f"link_fieldname to be set. Got reference_doctype={reference_doctype}, "
+				f"link_fieldname={link_fieldname}. Ignoring flag."
+			)
+			ignore_user_permissions = False
+
 	ignore_permissions = ignore_user_permissions
 	if settings and settings.ignore_user_permissions:
 		ignore_permissions = True
@@ -90,6 +106,12 @@ def _search_link_impl(
 	# 1. Check if it's a tree doctype
 	meta = frappe.get_meta(doctype)
 	if meta.is_tree:
+		# Fail fast: frappe.get_list below only checks this when ignore_permissions
+		# is False, but we want a clear PermissionError, not a silent empty result,
+		# and we want it before any doctype-wide fetch happens.
+		if not ignore_permissions:
+			frappe.has_permission(doctype, "read", throw=True)
+
 		# Find the parent field (a Link field pointing to the same doctype)
 		parent_field = None
 		for field in meta.fields:
@@ -122,7 +144,12 @@ def _search_link_impl(
 					if meta.has_field(f) and f not in fields_to_fetch:
 						fields_to_fetch.append(f)
 
-				all_nodes = frappe.get_all(
+				# frappe.get_all() unconditionally forces ignore_permissions=True
+				# internally, which silently discarded the value passed here and
+				# bypassed both doctype-level read permission and row-level User
+				# Permission restrictions for every caller. frappe.get_list() has
+				# the same signature but actually respects ignore_permissions.
+				all_nodes = frappe.get_list(
 					doctype,
 					fields=fields_to_fetch,
 					limit=None,
@@ -241,7 +268,9 @@ def _search_link_impl(
 				if meta.has_field("is_group"):
 					target_fields.append("is_group")
 
-				target_nodes = frappe.get_all(
+				# Same reasoning as the all_nodes fetch above: get_list (not
+				# get_all) so ignore_permissions is actually honored.
+				target_nodes = frappe.get_list(
 					doctype,
 					fields=target_fields,
 					filters=target_filters,
