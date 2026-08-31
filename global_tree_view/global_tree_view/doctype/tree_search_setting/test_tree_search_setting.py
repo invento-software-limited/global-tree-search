@@ -40,7 +40,30 @@ class IntegrationTestTreeSearchSetting(IntegrationTestCase):
 		frappe.whitelisted.add(dummy_query)
 		frappe.whitelisted.add(mock_query)
 
-		# Create a test department with custom_short_code if it doesn't exist
+	def tearDown(self):
+		# Restore settings
+		self.settings.active = self.old_active
+		self.settings.separator = self.old_separator
+		self.settings.maximum_tree_levels = self.old_maximum_tree_levels
+		self.settings.show_child_node = self.old_show_child_node
+		self.settings.remove_company_abbreviation = self.old_remove_company_abbreviation
+		self.settings.save()
+
+		# Clean up whitelisted functions
+		frappe.whitelisted.discard(dummy_query)
+		frappe.whitelisted.discard(mock_query)
+		super().tearDown()
+
+	def skip_unless_doctype_exists(self, doctype):
+		# This app has no tree doctype of its own to test against - Warehouse,
+		# Territory, Cost Center, Employee and Department all belong to
+		# erpnext/hrms. Skip rather than fail when those apps aren't installed
+		# on the site the tests are running against (e.g. a bare CI site).
+		if not frappe.db.exists("DocType", doctype):
+			self.skipTest(f"{doctype} doctype is not installed on this site")
+
+	def ensure_test_department(self):
+		self.skip_unless_doctype_exists("Department")
 		dept_name = "Test Dept Override - CO"
 		if not frappe.db.exists("Department", dept_name):
 			self.dept = frappe.get_doc(
@@ -57,20 +80,6 @@ class IntegrationTestTreeSearchSetting(IntegrationTestCase):
 		else:
 			self.dept_name = dept_name
 
-	def tearDown(self):
-		# Restore settings
-		self.settings.active = self.old_active
-		self.settings.separator = self.old_separator
-		self.settings.maximum_tree_levels = self.old_maximum_tree_levels
-		self.settings.show_child_node = self.old_show_child_node
-		self.settings.remove_company_abbreviation = self.old_remove_company_abbreviation
-		self.settings.save()
-
-		# Clean up whitelisted functions
-		frappe.whitelisted.discard(dummy_query)
-		frappe.whitelisted.discard(mock_query)
-		super().tearDown()
-
 	def test_fallback_non_tree_doctype(self):
 		# User is a non-tree doctype
 		res = search_link(doctype="User", txt="Administrator")
@@ -78,6 +87,7 @@ class IntegrationTestTreeSearchSetting(IntegrationTestCase):
 		self.assertTrue(any(r["value"] == "Administrator" for r in res))
 
 	def test_standard_tree_search_warehouse(self):
+		self.skip_unless_doctype_exists("Warehouse")
 		# Warehouse is a tree doctype
 		res = search_link(doctype="Warehouse", txt="Stores")
 		self.assertTrue(len(res) > 0)
@@ -87,6 +97,7 @@ class IntegrationTestTreeSearchSetting(IntegrationTestCase):
 				self.assertIn(" -> ", r["description"])
 
 	def test_toggle_active_setting(self):
+		self.skip_unless_doctype_exists("Warehouse")
 		# 1. Deactivate settings
 		self.settings.active = 0
 		self.settings.save()
@@ -112,6 +123,8 @@ class IntegrationTestTreeSearchSetting(IntegrationTestCase):
 				self.assertIn(" -> ", r.get("description") or "")
 
 	def test_tree_search_without_is_group_employee(self):
+		self.skip_unless_doctype_exists("Employee")
+		self.ensure_test_department()
 		# Employee is a tree doctype (is_tree=1) but doesn't have is_group
 		# Create test employee records
 		# 1. Boss
@@ -161,6 +174,8 @@ class IntegrationTestTreeSearchSetting(IntegrationTestCase):
 		self.assertEqual(actual_path, expected_path)
 
 	def test_custom_query_post_processing(self):
+		self.skip_unless_doctype_exists("Employee")
+		self.ensure_test_department()
 		# Create a dummy employee record to be returned by dummy query
 		boss = frappe.get_doc(
 			{
@@ -213,6 +228,7 @@ class IntegrationTestTreeSearchSetting(IntegrationTestCase):
 			mock_query_results = []
 
 	def test_search_link_denies_user_without_read_permission(self):
+		self.skip_unless_doctype_exists("Cost Center")
 		# Regression test: frappe.get_all() forces ignore_permissions=True
 		# internally, so passing ignore_permissions=False to it (as the old
 		# implementation did) had no effect and every caller could read every
@@ -249,6 +265,7 @@ class IntegrationTestTreeSearchSetting(IntegrationTestCase):
 			search_link(doctype="Cost Center", txt="")
 
 	def test_search_link_respects_user_permission_restriction(self):
+		self.skip_unless_doctype_exists("Territory")
 		# Regression test: the row-level User Permission match conditions
 		# were also silently skipped by the old frappe.get_all() call, so a
 		# user restricted to one Territory could still see every Territory
