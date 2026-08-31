@@ -3,5 +3,6 @@
 
 from frappe.model.document import Document
 
+
 class TreeSearchIgnoreDoctype(Document):
 	pass
