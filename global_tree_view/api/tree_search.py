@@ -1,9 +1,12 @@
 import frappe
 from frappe.desk.search import (
 	build_for_autosuggest,
-	search_link as original_search_link,
 	validate_ignore_user_permissions,
 )
+from frappe.desk.search import (
+	search_link as original_search_link,
+)
+
 
 @frappe.whitelist()
 def search_link(
@@ -35,6 +38,7 @@ def search_link(
 	finally:
 		if hasattr(frappe.local, "response_headers") and frappe.local.response_headers is not None:
 			frappe.local.response_headers.set("Cache-Control", "no-cache, no-store, must-revalidate")
+
 
 def _search_link_impl(
 	doctype: str,
@@ -118,7 +122,7 @@ def _search_link_impl(
 			if field.fieldtype == "Link" and field.options == doctype:
 				parent_field = field.fieldname
 				break
-		
+
 		if not parent_field:
 			# Fallback
 			fallback = f"parent_{frappe.scrub(doctype)}"
@@ -150,10 +154,7 @@ def _search_link_impl(
 				# Permission restrictions for every caller. frappe.get_list() has
 				# the same signature but actually respects ignore_permissions.
 				all_nodes = frappe.get_list(
-					doctype,
-					fields=fields_to_fetch,
-					limit=None,
-					ignore_permissions=ignore_permissions
+					doctype, fields=fields_to_fetch, limit=None, ignore_permissions=ignore_permissions
 				)
 				parent_map = {node.name: node[parent_field] for node in all_nodes}
 
@@ -164,17 +165,17 @@ def _search_link_impl(
 					visited = set()
 					while curr and curr not in visited:
 						visited.add(curr)
-						
+
 						# Clean name if remove_company_abbreviation is set
 						cleaned_name = curr
 						if settings and settings.remove_company_abbreviation and " - " in curr:
 							parts = curr.rsplit(" - ", 1)
 							if len(parts) > 1 and parts[1].isupper() and 2 <= len(parts[1]) <= 5:
 								cleaned_name = parts[0]
-								
+
 						path_parts.insert(0, cleaned_name)
 						curr = parent_map.get(curr)
-					
+
 					# Handle show_child_node setting
 					if settings and not settings.show_child_node and len(path_parts) > 1:
 						path_parts = path_parts[:-1]
@@ -189,10 +190,10 @@ def _search_link_impl(
 					# Join using separator setting
 					sep = settings.separator if (settings and settings.separator) else " -> "
 					path_str = sep.join(path_parts)
-					
+
 					if is_truncated:
 						path_str = "..." + sep + path_str
-						
+
 					return path_str
 
 				# If there is a custom query or standard query, run it and post-process
@@ -216,7 +217,9 @@ def _search_link_impl(
 						if val:
 							path = get_path(val)
 							node_data = next((n for n in all_nodes if n.name == val), None)
-							is_group = node_data.get("is_group") if (node_data and "is_group" in node_data) else 0
+							is_group = (
+								node_data.get("is_group") if (node_data and "is_group" in node_data) else 0
+							)
 							if is_group:
 								item["description"] = f"{path} (Group)"
 							else:
@@ -229,11 +232,12 @@ def _search_link_impl(
 				if filters:
 					if isinstance(filters, str):
 						import json
+
 						try:
 							filters = json.loads(filters)
 						except Exception:
 							pass
-					
+
 					if isinstance(filters, dict):
 						if "include_disabled" in filters:
 							if filters["include_disabled"] == 1:
@@ -252,7 +256,7 @@ def _search_link_impl(
 
 				# Build target filters
 				target_filters = []
-				
+
 				# Append user filters
 				target_filters.extend(parsed_filters)
 
@@ -275,7 +279,7 @@ def _search_link_impl(
 					fields=target_fields,
 					filters=target_filters,
 					limit=None,
-					ignore_permissions=ignore_permissions
+					ignore_permissions=ignore_permissions,
 				)
 
 				# Filter and build results
@@ -296,7 +300,7 @@ def _search_link_impl(
 								if val and txt.lower() in str(val).lower():
 									matches = True
 									break
-					
+
 					if matches:
 						is_group = node.get("is_group") if "is_group" in node else 0
 						desc = f"{path} (Group)" if is_group else path
@@ -312,7 +316,7 @@ def _search_link_impl(
 			except Exception as e:
 				# Log exception and fallback
 				frappe.log_error(message=str(e), title="Tree Search Override Failed")
-				
+
 	# Fallback to the original search_link
 	return original_search_link(
 		doctype,
