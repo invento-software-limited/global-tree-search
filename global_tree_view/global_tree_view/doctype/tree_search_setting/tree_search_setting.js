@@ -6,9 +6,9 @@ frappe.ui.form.on("Tree Search Setting", {
 		frm.set_query("doctype_to_ignore", "ignore_doctypes", function () {
 			return {
 				filters: {
-					is_tree: 1
-				}
+					is_tree: 1,
+				},
 			};
 		});
-	}
+	},
 });
