@@ -71,3 +71,9 @@ tests/ExampleTest.php
 jest.config.js
 tests/example.test.js
 graphify-out/
+
+# DevMind AI Project Operating System & Generated Context
+.mcp.json
+.claude/skills/
+.claude/agents/
+.claude/rules/
