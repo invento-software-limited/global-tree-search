@@ -201,11 +201,26 @@ def _search_link_impl(
 				has_custom_query = bool(query or (doctype in standard_queries))
 
 				if has_custom_query:
+
+					clean_filters = filters
+					if isinstance(clean_filters, dict) and "company" in clean_filters:
+						comp = clean_filters["company"]
+						if (
+							isinstance(comp, (list, tuple))
+							and len(comp) == 2
+							and isinstance(comp[0], str)
+							and comp[0].lower() == "in"
+							and isinstance(comp[1], (list, tuple))
+							and len(comp[1]) == 1
+						):
+							clean_filters = dict(clean_filters)
+							clean_filters["company"] = comp[1][0]
+
 					original_res = original_search_link(
 						doctype,
 						txt,
 						query,
-						filters,
+						clean_filters,
 						page_length,
 						searchfield,
 						reference_doctype,
@@ -245,14 +260,65 @@ def _search_link_impl(
 							filters = dict(filters)
 							filters.pop("include_disabled", None)
 						for k, v in filters.items():
-							parsed_filters.append([doctype, k, "=", v])
+							if (
+								isinstance(v, (list, tuple))
+								and len(v) == 2
+								and isinstance(v[0], str)
+								and v[0].lower() in [
+									"in",
+									"not in",
+									"like",
+									"not like",
+									"!=",
+									">",
+									"<",
+									">=",
+									"<=",
+									"between",
+									"is",
+								]
+							):
+								# Avoid SQL syntax error with empty IN clause
+								if v[0].lower() == "in" and isinstance(v[1], (list, tuple)) and len(v[1]) == 0:
+									parsed_filters.append([doctype, k, "=", "__NO_MATCH__"])
+								else:
+									parsed_filters.append([doctype, k, v[0], v[1]])
+							else:
+								parsed_filters.append([doctype, k, "=", v])
 					elif isinstance(filters, list):
 						for f in filters:
 							if isinstance(f, (list, tuple)):
 								parsed_filters.append(list(f))
 							elif isinstance(f, dict):
 								for k, v in f.items():
-									parsed_filters.append([doctype, k, "=", v])
+									if (
+										isinstance(v, (list, tuple))
+										and len(v) == 2
+										and isinstance(v[0], str)
+										and v[0].lower() in [
+											"in",
+											"not in",
+											"like",
+											"not like",
+											"!=",
+											">",
+											"<",
+											">=",
+											"<=",
+											"between",
+											"is",
+										]
+									):
+										if (
+											v[0].lower() == "in"
+											and isinstance(v[1], (list, tuple))
+											and len(v[1]) == 0
+										):
+											parsed_filters.append([doctype, k, "=", "__NO_MATCH__"])
+										else:
+											parsed_filters.append([doctype, k, v[0], v[1]])
+									else:
+										parsed_filters.append([doctype, k, "=", v])
 
 				# Build target filters
 				target_filters = []

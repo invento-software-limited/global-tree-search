@@ -41,13 +41,14 @@ class IntegrationTestTreeSearchSetting(IntegrationTestCase):
 		frappe.whitelisted.add(mock_query)
 
 	def tearDown(self):
+		frappe.set_user("Administrator")
 		# Restore settings
 		self.settings.active = self.old_active
 		self.settings.separator = self.old_separator
 		self.settings.maximum_tree_levels = self.old_maximum_tree_levels
 		self.settings.show_child_node = self.old_show_child_node
 		self.settings.remove_company_abbreviation = self.old_remove_company_abbreviation
-		self.settings.save()
+		self.settings.save(ignore_permissions=True)
 
 		# Clean up whitelisted functions
 		frappe.whitelisted.discard(dummy_query)
@@ -139,9 +140,11 @@ class IntegrationTestTreeSearchSetting(IntegrationTestCase):
 				"department": self.dept_name,
 				"date_of_birth": "1980-01-01",
 				"date_of_joining": "2020-01-01",
+				"monthly_gross_salary": 10000,
+				"custom_monthly_gross_salary": 10000,
 			}
 		)
-		boss.insert(ignore_permissions=True)
+		boss.insert(ignore_permissions=True, ignore_mandatory=True)
 
 		# 2. Staff reporting to Boss
 		staff = frappe.get_doc(
@@ -156,9 +159,11 @@ class IntegrationTestTreeSearchSetting(IntegrationTestCase):
 				"date_of_birth": "1990-01-01",
 				"date_of_joining": "2021-01-01",
 				"reports_to": boss.name,
+				"monthly_gross_salary": 10000,
+				"custom_monthly_gross_salary": 10000,
 			}
 		)
-		staff.insert(ignore_permissions=True)
+		staff.insert(ignore_permissions=True, ignore_mandatory=True)
 
 		# Test search for Staff
 		res = search_link(doctype="Employee", txt="Staff")
@@ -188,9 +193,11 @@ class IntegrationTestTreeSearchSetting(IntegrationTestCase):
 				"department": self.dept_name,
 				"date_of_birth": "1980-01-01",
 				"date_of_joining": "2020-01-01",
+				"monthly_gross_salary": 10000,
+				"custom_monthly_gross_salary": 10000,
 			}
 		)
-		boss.insert(ignore_permissions=True)
+		boss.insert(ignore_permissions=True, ignore_mandatory=True)
 
 		emp = frappe.get_doc(
 			{
@@ -204,9 +211,11 @@ class IntegrationTestTreeSearchSetting(IntegrationTestCase):
 				"date_of_birth": "1990-01-01",
 				"date_of_joining": "2021-01-01",
 				"reports_to": boss.name,
+				"monthly_gross_salary": 10000,
+				"custom_monthly_gross_salary": 10000,
 			}
 		)
-		emp.insert(ignore_permissions=True)
+		emp.insert(ignore_permissions=True, ignore_mandatory=True)
 
 		# Populate mock query results
 		global mock_query_results
@@ -324,3 +333,23 @@ class IntegrationTestTreeSearchSetting(IntegrationTestCase):
 
 		self.assertIn(allowed_territory, values)
 		self.assertNotIn(restricted_territory, values)
+
+	def test_search_link_advanced_filter_operators(self):
+		self.skip_unless_doctype_exists("Department")
+		self.ensure_test_department()
+		res = search_link(
+			doctype="Department",
+			txt="",
+			filters={"company": ["in", ["Corporate Office"]]},
+		)
+		self.assertTrue(len(res) > 0)
+
+	def test_search_link_empty_in_clause(self):
+		self.skip_unless_doctype_exists("Department")
+		self.ensure_test_department()
+		res = search_link(
+			doctype="Department",
+			txt="",
+			filters={"company": ["in", []]},
+		)
+		self.assertEqual(len(res), 0)
