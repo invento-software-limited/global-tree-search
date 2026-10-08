@@ -40,6 +40,85 @@ def search_link(
 			frappe.local.response_headers.set("Cache-Control", "no-cache, no-store, must-revalidate")
 
 
+def _extract_companies(val):
+	if not isinstance(val, (list, tuple)):
+		return [val] if val else []
+	if (
+		len(val) == 2
+		and isinstance(val[0], str)
+		and val[0].lower() == "in"
+		and isinstance(val[1], (list, tuple))
+	):
+		return [c for c in val[1] if c]
+	elif len(val) >= 2 and isinstance(val[0], str) and val[0].lower() in ("in", "not in", "=", "!="):
+		return [c for c in val[1:] if c]
+	else:
+		return [c for c in val if c]
+
+
+def _sanitize_filters(filters, query=None):
+	"""
+	Sanitize company / custom_company filters.
+	External hooks (such as company_global_filter) may inject company filters like:
+	['in', ['Farseeing 2', '', None]] or ['in', ['Company A', 'Company B']].
+	When passed to custom search queries (like hrms.payroll.doctype.payroll_entry.payroll_entry.employee_query)
+	or queries using Frappe QueryBuilder (e.g. SalaryStructure.company == company), passing a list or
+	operator tuple causes invalid SQL syntax (ProgrammingError 1064).
+	This function extracts the valid company string so downstream queries receive valid values.
+	"""
+	if not filters:
+		return filters
+
+	filters_data = filters
+	if isinstance(filters, str):
+		try:
+			import json
+
+			filters_data = json.loads(filters)
+		except Exception:
+			return filters
+
+	if isinstance(filters_data, dict):
+		filters_data = dict(filters_data)
+		for comp_field in ("company", "custom_company"):
+			if comp_field in filters_data:
+				val = filters_data[comp_field]
+				if isinstance(val, (list, tuple)):
+					companies = _extract_companies(val)
+					if query or len(companies) <= 1:
+						filters_data[comp_field] = companies[0] if companies else ""
+					elif not companies:
+						filters_data[comp_field] = ""
+					else:
+						filters_data[comp_field] = ["in", companies]
+		return filters_data
+
+	elif isinstance(filters_data, list):
+		new_list = []
+		for f in filters_data:
+			if isinstance(f, (list, tuple)) and len(f) >= 3:
+				f_list = list(f)
+				field_idx = 1 if len(f_list) >= 4 else 0
+				op_idx = field_idx + 1
+				val_idx = op_idx + 1
+				if f_list[field_idx] in ("company", "custom_company"):
+					op = str(f_list[op_idx]).lower()
+					val = f_list[val_idx]
+					if op == "in" and isinstance(val, (list, tuple)):
+						companies = _extract_companies(val)
+						if query or len(companies) <= 1:
+							f_list[op_idx] = "="
+							f_list[val_idx] = companies[0] if companies else "__NO_MATCH__"
+						else:
+							f_list[val_idx] = companies
+				new_list.append(f_list)
+			else:
+				new_list.append(f)
+		return new_list
+
+	return filters_data
+
+
 def _search_link_impl(
 	doctype: str,
 	txt: str,
@@ -53,6 +132,14 @@ def _search_link_impl(
 	link_fieldname: str | None = None,
 	start: int = 0,
 ):
+	# Sanitize filters right at entry so all code paths (including fallbacks) receive clean filters
+	filters = _sanitize_filters(filters, query=query)
+	if hasattr(frappe, "form_dict") and "filters" in frappe.form_dict and filters is not None:
+		try:
+			frappe.form_dict["filters"] = frappe.as_json(filters)
+		except Exception:
+			pass
+
 	# Load settings
 	settings = None
 	try:
@@ -201,44 +288,32 @@ def _search_link_impl(
 				has_custom_query = bool(query or (doctype in standard_queries))
 
 				if has_custom_query:
-
-					clean_filters = filters
-					if isinstance(clean_filters, dict) and "company" in clean_filters:
-						comp = clean_filters["company"]
-						if (
-							isinstance(comp, (list, tuple))
-							and len(comp) == 2
-							and isinstance(comp[0], str)
-							and comp[0].lower() == "in"
-							and isinstance(comp[1], (list, tuple))
-							and len(comp[1]) == 1
-						):
-							clean_filters = dict(clean_filters)
-							clean_filters["company"] = comp[1][0]
-
 					original_res = original_search_link(
 						doctype,
 						txt,
 						query,
-						clean_filters,
+						filters,
 						page_length,
 						searchfield,
 						reference_doctype,
 						ignore_user_permissions,
 						link_fieldname=link_fieldname,
 					)
-					for item in original_res:
-						val = item.get("value")
-						if val:
-							path = get_path(val)
-							node_data = next((n for n in all_nodes if n.name == val), None)
-							is_group = (
-								node_data.get("is_group") if (node_data and "is_group" in node_data) else 0
-							)
-							if is_group:
-								item["description"] = f"{path} (Group)"
-							else:
-								item["description"] = path
+					try:
+						for item in original_res:
+							val = item.get("value")
+							if val:
+								path = get_path(val)
+								node_data = next((n for n in all_nodes if n.name == val), None)
+								is_group = (
+									node_data.get("is_group") if (node_data and "is_group" in node_data) else 0
+								)
+								if is_group:
+									item["description"] = f"{path} (Group)"
+								else:
+									item["description"] = path
+					except Exception:
+						pass
 					return original_res
 
 				# Parse filters and preserve operators

@@ -353,3 +353,38 @@ class IntegrationTestTreeSearchSetting(IntegrationTestCase):
 			filters={"company": ["in", []]},
 		)
 		self.assertEqual(len(res), 0)
+
+	def test_sanitize_filters_company_with_empty_and_none(self):
+		from global_tree_view.api.tree_search import _sanitize_filters
+
+		raw = {"company": ["in", ["Farseeing 2", "", None]], "payroll_frequency": "Monthly"}
+		clean = _sanitize_filters(raw, query="dummy_query")
+		self.assertEqual(clean["company"], "Farseeing 2")
+
+		# Single company without query should also unwrap cleanly
+		clean_no_query = _sanitize_filters(raw)
+		self.assertEqual(clean_no_query["company"], "Farseeing 2")
+
+	def test_employee_search_with_in_company_and_nulls(self):
+		self.skip_unless_doctype_exists("Employee")
+		self.ensure_test_department()
+
+		# Should execute without SQL 1064 syntax error
+		res = search_link(
+			doctype="Employee",
+			txt="",
+			reference_doctype="Payroll Employee Detail",
+			page_length=10,
+			link_fieldname="employee",
+			query="hrms.payroll.doctype.payroll_entry.payroll_entry.employee_query",
+			filters={
+				"company": ["in", ["Corporate Office", "", None]],
+				"start_date": "2026-10-01",
+				"end_date": "2026-10-31",
+				"payroll_frequency": "Monthly",
+				"payroll_payable_account": "Payroll Payable - CO",
+				"currency": "BDT",
+				"salary_slip_based_on_timesheet": 0,
+			},
+		)
+		self.assertIsInstance(res, list)
